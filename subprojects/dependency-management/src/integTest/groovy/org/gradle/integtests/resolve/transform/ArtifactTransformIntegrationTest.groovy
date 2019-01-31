@@ -788,6 +788,52 @@ $fileSizer
         output.count("Transforming") == 0
     }
 
+    def "transform can register the whole workspace as an output"() {
+        buildFile << """
+            def f = file("lib.jar")
+            f.text = "1234"
+ 
+            dependencies {
+                compile files(f)
+            }
+
+            dependencies {
+                registerTransformAction(MyArtifactTransform) {
+                    from.attribute(artifactType, 'jar')
+                    to.attribute(artifactType, 'size')
+                }
+            }
+            
+            abstract class MyArtifactTransform implements ArtifactTransformAction {
+                @PrimaryInput
+                abstract File getInput()
+                
+                void transform(ArtifactTransformOutputs outputs) {
+                    println("Transforming")
+                    File outputDirectory = outputs.registerWorkspaceAsOutputDirectory()
+                    new File(outputDirectory, "some-output.txt").text = "\${input.length()}"
+                }
+            }
+
+            task resolve {
+                def artifacts = configurations.compile.incoming.artifactView {
+                    attributes { it.attribute(artifactType, 'size') }
+                }.artifacts
+                inputs.files artifacts.artifactFiles
+                doLast {
+                    artifacts.artifactFiles.files.size() == 1
+                    artifacts.artifactFiles.files.every { it.directory }
+                }
+            }
+        """
+
+        when:
+        run "resolve"
+
+        then:
+        output.count("Transforming") == 1
+    }
+
     def "transform can generate multiple output files for a single input"() {
         def m1 = mavenRepo.module("test", "test", "1.3").publish()
         m1.artifactFile.text = "1234"
